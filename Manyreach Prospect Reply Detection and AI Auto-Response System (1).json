@@ -1,0 +1,401 @@
+{
+  "name": "Manyreach Prospect Reply Detection and AI Auto-Response System",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes"
+            }
+          ]
+        }
+      },
+      "id": "8af77c8e-445c-4227-b989-da3966be3371",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -1120,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();\nconst lastCheck = ($workflow.staticData && $workflow.staticData.lastCheck) ? $workflow.staticData.lastCheck : twentyFourHoursAgo;\nreturn [{\n  json: {\n    apiUrl: \"https://api.manyreach.com/api/v2\",\n    apiKey: \"2e37181b-b8eb-4d7a-91f7-461fca80ab18\",\n    lastCheck: lastCheck\n  }\n}];"
+      },
+      "id": "c8f6cf71-3d14-4a9f-aa28-620cf5817b07",
+      "name": "Initialize Variables",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -896,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.apiUrl }}/prospects",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "limit",
+              "value": "100"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $json.apiKey }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "fe40505b-8763-4484-bee2-6dc423d0c21c",
+      "name": "Get Recent Prospects",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -672,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nif (!response.items || response.items.length === 0) {\n  return [];\n}\nreturn response.items.map(item => ({ json: item }));"
+      },
+      "id": "5cd24c7e-2899-4552-b3e6-314f8dbd7c5c",
+      "name": "Extract Prospect Items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -448,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "6d39e036-c93d-40ce-94f0-5bda0a11bca8",
+      "name": "Loop Over Items",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -224,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Initialize Variables').first().json.apiUrl }}/prospects/{{ $json.prospectId }}/messages",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "limit",
+              "value": "20"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $('Initialize Variables').first().json.apiKey }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "b532ed45-882e-4957-89ad-da4f9c208348",
+      "name": "Get Prospect Messages",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const initData = $('Initialize Variables').first().json;\nconst response = $input.first().json;\n\nif (!response.items || response.items.length === 0) {\n  return [];\n}\n\nconst lastCheck = new Date(initData.lastCheck);\nconst processed = $workflow.staticData.processedMessages || [];\n\nconst newReplies = response.items.filter(msg => {\n  const isReply = msg.type === 'Reply';\n  const isNew = new Date(msg.createdAt) > lastCheck;\n  const notProcessed = !processed.includes(msg.messageId);\n  return isReply && isNew && notProcessed;\n});\n\nreturn newReplies.map(msg => ({ json: msg }));"
+      },
+      "id": "9217e684-2a2a-4de2-88b9-fe9b6844b169",
+      "name": "Extract and Filter Reply Messages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "id-1",
+              "leftValue": "={{ $json.messageId }}",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "cd9df670-014c-4dff-9bf8-7d6c8ab64b5c",
+      "name": "Check If Reply Exists",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        448,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "gpt-4o-mini"
+        },
+        "responses": {
+          "values": [
+            {
+              "content": "=Generate a professional reply to this email from {{ $json.firstName }} {{ $json.lastName }} at {{ $json.company }}. Their message: {{ $json.body }}. Create a response that addresses their points and includes a clear call to action."
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {
+          "instructions": "You are a professional email assistant. Generate friendly, helpful replies that address the prospect's message. Keep responses under 150 words and format with HTML paragraph tags."
+        }
+      },
+      "id": "119e8555-33f7-4eae-82ed-5b1cb182d8f5",
+      "name": "Generate AI Reply",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.1,
+      "position": [
+        672,
+        0
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "FHyfQSrxTxrQkmEV",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Initialize Variables').first().json.apiUrl }}/messages/reply",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $('Initialize Variables').first().json.apiKey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"messageId\": \"{{ $json.messageId }}\",\n  \"body\": \"<p>{{ $('Generate AI Reply').first().json.output }}</p>\",\n  \"sendAsReply\": true\n}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "5772351b-97d1-4d41-83cc-4178da59e559",
+      "name": "Send Reply via Manyreach",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1024,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "if (!$workflow.staticData.processedMessages) {\n  $workflow.staticData.processedMessages = [];\n}\n$workflow.staticData.processedMessages.push($json.messageId);\n$workflow.staticData.lastCheck = new Date().toISOString();\n\n// Keep only last 1000 processed messages to prevent memory issues\nif ($workflow.staticData.processedMessages.length > 1000) {\n  $workflow.staticData.processedMessages = $workflow.staticData.processedMessages.slice(-1000);\n}\n\nreturn $input.all();"
+      },
+      "id": "a82b00b6-720c-4bf8-ae96-9f636119913a",
+      "name": "Mark Message as Processed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1248,
+        80
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Initialize Variables",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Initialize Variables": {
+      "main": [
+        [
+          {
+            "node": "Get Recent Prospects",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Recent Prospects": {
+      "main": [
+        [
+          {
+            "node": "Extract Prospect Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Prospect Items": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Get Prospect Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Prospect Messages": {
+      "main": [
+        [
+          {
+            "node": "Extract and Filter Reply Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract and Filter Reply Messages": {
+      "main": [
+        [
+          {
+            "node": "Check If Reply Exists",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check If Reply Exists": {
+      "main": [
+        [
+          {
+            "node": "Generate AI Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate AI Reply": {
+      "main": [
+        [
+          {
+            "node": "Send Reply via Manyreach",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Reply via Manyreach": {
+      "main": [
+        [
+          {
+            "node": "Mark Message as Processed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Message as Processed": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "878bfef4-23d4-4da4-ba86-7d1d93eed67c",
+  "meta": {
+    "instanceId": "3f30cb1674c6f051aed6c3d6ca997c7d3e37e88a58b759272b2e7d795709f1d5"
+  },
+  "id": "KsAXZvWnH8S2kIFl",
+  "tags": []
+}
